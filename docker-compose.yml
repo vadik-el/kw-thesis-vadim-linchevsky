@@ -1,0 +1,95 @@
+version: '3.8'
+
+services:
+  mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      # MCP Configuration
+      - MCP_TRANSPORT_MODE=http
+      - MCP_PORT=3000
+      - MCP_SKIP_AUTH=false
+
+      # Authentication (CHANGE THESE IN PRODUCTION!)
+      - MCP_API_KEYS=${MCP_API_KEYS}
+      - MCP_JWT_SECRET=${MCP_JWT_SECRET}
+
+      # Anthropic API
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+
+      # Terminal49 API
+      - TERMINAL49_API_KEY=${TERMINAL49_API_KEY}
+
+      # Database (optional - for full functionality)
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/vessel_tracking}
+      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
+
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - NODE_ENV=${NODE_ENV:-production}
+
+    restart: unless-stopped
+    networks:
+      - mcp-network
+    depends_on:
+      - postgres
+      - qdrant
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # PostgreSQL database (optional - for full tool functionality)
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=vessel_tracking
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - mcp-network
+    restart: unless-stopped
+
+  # Qdrant vector database (optional - for document search)
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    networks:
+      - mcp-network
+    restart: unless-stopped
+
+  # Nginx reverse proxy with SSL (optional - for production)
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - mcp-server
+    networks:
+      - mcp-network
+    restart: unless-stopped
+
+networks:
+  mcp-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  qdrant-data:
